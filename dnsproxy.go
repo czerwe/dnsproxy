@@ -2,33 +2,44 @@ package main
 
 import (
 	"fmt"
+	log "github.com/Sirupsen/logrus"
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
-	"log"
 	"strconv"
 )
 
 var records = map[string]string{
-	"t.service.":  "1.0.0.1",
-	"t2.service.": "1.0.0.2",
+	"t.service.":         "1.0.0.1",
+	"t2.service.":        "1.0.0.2",
+	"centralinstall.":    "1.0.0.4",
+	"centralinstall.tt.": "1.0.0.4",
 }
 
-func query(zone string, qtype uint16) {
+func query(zone string, qtype uint16) []dns.RR {
 	// config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
 	c := new(dns.Client)
 	m := new(dns.Msg)
-	// zone := "test3.service"
 	m.SetQuestion(dns.Fqdn(zone), qtype)
 	m.SetEdns0(4096, true)
 	// litter.Dump(m)
-	r, _, err := c.Exchange(m, "localhost:5353")
+	r, _, err := c.Exchange(m, "8.8.8.8:53")
 	// fmt.Println("RESULT:")
-	litter.Dump(r)
+
+	// litter.Dump(r)
+	// fmt.Println("YYYYYYYYYYYYYYYY")
+
+	// log.WithFields(log.Fields{
+	// 	"name":   q.Name,
+	// 	"qtype":  q.Qtype,
+	// 	"qclass": q.Qclass,
+	// }).Info("received dns.Question")
+
 	if err != nil {
-		return
+		return r.Answer
 	}
+
 	if r.Rcode != dns.RcodeSuccess {
-		return
+		return r.Answer
 	}
 
 	for _, k := range r.Answer {
@@ -38,12 +49,17 @@ func query(zone string, qtype uint16) {
 			}
 		}
 	}
+	return r.Answer
 }
 
 func parseQuery(m *dns.Msg) {
-	fmt.Println("handleQUERY")
+	log.Info("parse query")
 	for _, q := range m.Question {
-		litter.Dump(q)
+		log.WithFields(log.Fields{
+			"name":   q.Name,
+			"qtype":  q.Qtype,
+			"qclass": q.Qclass,
+		}).Info("received dns.Question")
 		switch q.Qtype {
 		case dns.TypeA:
 			log.Printf("Query for %s\n", q.Name)
@@ -53,18 +69,38 @@ func parseQuery(m *dns.Msg) {
 				if err == nil {
 					m.Answer = append(m.Answer, rr)
 				}
+				litter.Dump(m.Answer[0])
+
+				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
 			} else {
 				query(q.Name, q.Qtype)
+				// rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
+				m.Answer = query(q.Name, q.Qtype)
+
+				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
+				litter.Dump(m.Answer)
+
 			}
+		default:
+			log.Info("no type defined, default query")
+			query(q.Name, q.Qtype)
+			// rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
+			m.Answer = query(q.Name, q.Qtype)
 		}
 	}
 }
 
 func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
-	fmt.Println("handleDNSR")
+	log.WithFields(log.Fields{
+		"Opcode": r.Opcode,
+	}).Info("handle query")
+
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Compress = false
+
+	// litter.Dump(m)
+	// litter.Dump(r)
 
 	switch r.Opcode {
 	case dns.OpcodeQuery:
@@ -77,11 +113,15 @@ func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 func main() {
 	// attach request handler func
 	dns.HandleFunc("service.", handleDnsRequest)
+	dns.HandleFunc(".", handleDnsRequest)
+
+	litter.Dump("USE")
 
 	// start server
-	port := 53
+	port := 5354
 	server := &dns.Server{Addr: ":" + strconv.Itoa(port), Net: "udp"}
 	log.Printf("Starting at %d\n", port)
+
 	err := server.ListenAndServe()
 	defer server.Shutdown()
 	if err != nil {
