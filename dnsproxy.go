@@ -1,5 +1,7 @@
 package main
 
+// https://godoc.org/github.com/miekg/dns
+
 import (
 	"fmt"
 	log "github.com/Sirupsen/logrus"
@@ -18,12 +20,13 @@ var records = map[string]string{
 
 func query(zone string, qtype uint16) []dns.RR {
 	// config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
+	var fakeresponse []dns.RR
 	c := new(dns.Client)
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(zone), qtype)
 	m.SetEdns0(4096, true)
 	// litter.Dump(m)
-	r, _, err := c.Exchange(m, "8.8.8.8:53")
+	r, _, err := c.Exchange(m, "172.16.20.50:53")
 	// fmt.Println("RESULT:")
 
 	// litter.Dump(r)
@@ -36,11 +39,17 @@ func query(zone string, qtype uint16) []dns.RR {
 	// }).Info("received dns.Question")
 
 	if err != nil {
-		return r.Answer
+		log.Error("received non valid response")
+		return fakeresponse
 	}
 
 	if r.Rcode != dns.RcodeSuccess {
-		return r.Answer
+		log.Error("received non valid response")
+		log.WithFields(log.Fields{
+			"expected": dns.RcodeSuccess,
+			"received": r.Rcode,
+		}).Error("invalid Response code")
+		return fakeresponse
 	}
 
 	for _, k := range r.Answer {
@@ -79,7 +88,7 @@ func parseQuery(m *dns.Msg) {
 					m.Answer = append(m.Answer, rr)
 				}
 
-				litter.Dump(m.Answer[0].Hdr.Ttl)
+				// litter.Dump(m.Answer[0].Hdr.Ttl)
 				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
 
 			} else {
@@ -128,7 +137,7 @@ func main() {
 	litter.Dump("USE")
 
 	// start server
-	port := 5354
+	port := 53
 	server := &dns.Server{Addr: ":" + strconv.Itoa(port), Net: "udp"}
 	log.Printf("Starting at %d\n", port)
 
