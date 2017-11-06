@@ -6,13 +6,14 @@ import (
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
 	"strconv"
+	"strings"
 )
 
 var records = map[string]string{
 	"t.service.":         "1.0.0.1",
 	"t2.service.":        "1.0.0.2",
 	"centralinstall.":    "1.0.0.4",
-	"centralinstall.tt.": "1.0.0.4",
+	"centralinstall.tt.": "1.0.0.5",
 }
 
 func query(zone string, qtype uint16) []dns.RR {
@@ -62,22 +63,31 @@ func parseQuery(m *dns.Msg) {
 		}).Info("received dns.Question")
 		switch q.Qtype {
 		case dns.TypeA:
-			log.Printf("Query for %s\n", q.Name)
+
 			ip := records[q.Name]
+
+			if ip == "" {
+				singlename := strings.Split(q.Name, ".")[0]
+				fmt.Printf("SINGLENAME: %v\n", singlename)
+				log.Info("havent found the direct name, query first section")
+				ip = records[singlename+"."]
+			}
+
 			if ip != "" {
 				rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
 				if err == nil {
 					m.Answer = append(m.Answer, rr)
 				}
-				litter.Dump(m.Answer[0])
 
+				litter.Dump(m.Answer[0].Hdr.Ttl)
 				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
+
 			} else {
 				query(q.Name, q.Qtype)
 				// rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
 				m.Answer = query(q.Name, q.Qtype)
-
 				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
+
 				litter.Dump(m.Answer)
 
 			}
