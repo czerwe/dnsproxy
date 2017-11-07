@@ -27,6 +27,7 @@ var records = map[string]string{
 	"t2.service.":        "1.0.0.2",
 	"centralinstall.":    "1.0.0.4",
 	"centralinstall.tt.": "1.0.0.5",
+	"icemaster.":         "10.77.77.11",
 }
 
 var version string = "0.1.0"
@@ -115,7 +116,7 @@ func parseQuery(m *dns.Msg) {
 				log.WithFields(logfields).Info("start default query")
 				m.Answer = query(q.Name, q.Qtype)
 			} else {
-				log.WithFields(logfields).Info("start default query")
+				log.WithFields(logfields).Info("name intern resoloved to ", ip)
 				rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
 				if err == nil {
 					// Get the Header and set the Time to Live (ttl) to 10 Seconds
