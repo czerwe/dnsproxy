@@ -5,11 +5,22 @@ package main
 import (
 	"fmt"
 	log "github.com/Sirupsen/logrus"
+	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
-	"strconv"
+	// "strconv"
 	"strings"
 )
+
+type Options struct {
+	Dnsserver string   `short:"d" long:"dnsserver" env:"DNSSERVER" default:"8.8.8.8" description:"Public DNS server"`
+	Dnsport   string   `long:"dnsport" env:"DNSPORT" default:"53" description:"Public DNS server port"`
+	Port      string   `short:"p" long:"listenport" env:"LISTENPORT" default:"53" description:"Port where this service is listen to"`
+	Loglevel  []string `long:"loglevel" env:"LOGLEVEL" default:"info" description:"loglevel" choice:"warn" choice:"info" choice:"debug"`
+	Version   []bool   `long:"version" short:"v" description:"show version"`
+}
+
+var opts Options
 
 var records = map[string]string{
 	"t.service.":         "1.0.0.1",
@@ -18,18 +29,34 @@ var records = map[string]string{
 	"centralinstall.tt.": "1.0.0.5",
 }
 
+func init() {
+	_, err := flags.Parse(&opts)
+
+	if err != nil {
+		log.Error("Error in parsing arguments")
+	}
+
+	log.SetLevel(log.DebugLevel)
+
+}
+
 func query(zone string, qtype uint16) []dns.RR {
 	// config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
-	var fakeresponse []dns.RR
+	var failresponse []dns.RR
+
 	c := new(dns.Client)
 	m := new(dns.Msg)
+
 	m.SetQuestion(dns.Fqdn(zone), qtype)
 	m.SetEdns0(4096, true)
-	// litter.Dump(m)
-	r, _, err := c.Exchange(m, "172.16.20.50:53")
+
+	// r, _, err := c.Exchange(m, "172.16.20.50:53")
+	r, _, err := c.Exchange(m, opts.Dnsserver+":"+opts.Dnsport)
 	// fmt.Println("RESULT:")
 
 	// litter.Dump(r)
+
+	// fmt.Printf("%T %v\n", r, r)
 	// fmt.Println("YYYYYYYYYYYYYYYY")
 
 	// log.WithFields(log.Fields{
@@ -40,7 +67,7 @@ func query(zone string, qtype uint16) []dns.RR {
 
 	if err != nil {
 		log.Error("received non valid response")
-		return fakeresponse
+		return failresponse
 	}
 
 	if r.Rcode != dns.RcodeSuccess {
@@ -49,63 +76,71 @@ func query(zone string, qtype uint16) []dns.RR {
 			"expected": dns.RcodeSuccess,
 			"received": r.Rcode,
 		}).Error("invalid Response code")
-		return fakeresponse
+		return failresponse
 	}
 
 	for _, k := range r.Answer {
 		if key, ok := k.(*dns.DNSKEY); ok {
 			for _, alg := range []uint8{dns.SHA1, dns.SHA256, dns.SHA384} {
+				fmt.Println("MARK ON")
 				fmt.Printf("%s; %d\n", key.ToDS(alg).String(), key.Flags)
+				fmt.Println("MARK OFF")
 			}
 		}
 	}
+
 	return r.Answer
 }
 
 func parseQuery(m *dns.Msg) {
+	logfields := log.Fields{}
+
 	log.Info("parse query")
+
 	for _, q := range m.Question {
-		log.WithFields(log.Fields{
-			"name":   q.Name,
-			"qtype":  q.Qtype,
-			"qclass": q.Qclass,
-		}).Info("received dns.Question")
+		logfields["name"] = q.Name
+		logfields["qtype"] = q.Qtype
+		logfields["qclass"] = q.Qclass
+
+		log.WithFields(logfields).Info("received dns.Question")
 		switch q.Qtype {
 		case dns.TypeA:
 
 			ip := records[q.Name]
 
 			if ip == "" {
-				singlename := strings.Split(q.Name, ".")[0]
-				fmt.Printf("SINGLENAME: %v\n", singlename)
-				log.Info("havent found the direct name, query first section")
-				ip = records[singlename+"."]
-			}
+				shortname := strings.Split(q.Name, ".")[0]
+				logfields["shortname"] = shortname
+				log.WithFields(logfields).Debug("Full name not resolved local, query shortname")
+				ip = records[shortname+"."]
 
-			if ip != "" {
-				rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
-				if err == nil {
-					m.Answer = append(m.Answer, rr)
+				if ip == "" {
+					log.WithFields(logfields).Debug("shortname not resolved local")
+					delete(logfields, "shortname")
+
+					log.WithFields(logfields).Info("start default query")
+					query(q.Name, q.Qtype)
+					m.Answer = query(q.Name, q.Qtype)
+				} else {
+					log.WithFields(logfields).Info("start default query")
+					rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
+					if err == nil {
+						// Get the Header and set the Time to Live (ttl) to 10 Seconds
+						// Changes can be pushed faster to the client with that ttl
+						header := rr.Header()
+						header.Ttl = 10
+						m.Answer = append(m.Answer, rr)
+					}
 				}
-
-				// litter.Dump(m.Answer[0].Hdr.Ttl)
-				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
-
-			} else {
-				query(q.Name, q.Qtype)
-				// rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
-				m.Answer = query(q.Name, q.Qtype)
-				log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
-
-				litter.Dump(m.Answer)
-
 			}
+
 		default:
-			log.Info("no type defined, default query")
+			log.WithFields(logfields).Info("start default query")
 			query(q.Name, q.Qtype)
 			// rr, err := dns.NewRR(fmt.Sprintf("%s A %s", q.Name, ip))
 			m.Answer = query(q.Name, q.Qtype)
 		}
+		log.WithFields(log.Fields{"entrys found": len(m.Answer)}).Info("answer")
 	}
 }
 
@@ -117,9 +152,6 @@ func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Compress = false
-
-	// litter.Dump(m)
-	// litter.Dump(r)
 
 	switch r.Opcode {
 	case dns.OpcodeQuery:
@@ -137,9 +169,9 @@ func main() {
 	litter.Dump("USE")
 
 	// start server
-	port := 53
-	server := &dns.Server{Addr: ":" + strconv.Itoa(port), Net: "udp"}
-	log.Printf("Starting at %d\n", port)
+	// port := opts.Port
+	server := &dns.Server{Addr: ":" + opts.Port, Net: "udp"}
+	log.Printf("Starting at %v\n", opts.Port)
 
 	err := server.ListenAndServe()
 	defer server.Shutdown()
