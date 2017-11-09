@@ -1,6 +1,7 @@
 package main
 
 // https://godoc.org/github.com/miekg/dns
+// https://github.com/miekg/dns/blob/master/types.go#L624
 
 import (
 	"fmt"
@@ -146,12 +147,26 @@ func parseQuery(m *dns.Msg) {
 			logfields["answer_ttl"] = header.Ttl
 			logfields["answer_rrtype"] = header.Rrtype
 
+			switch header.Rrtype {
+			case dns.TypeA:
+				logfields["answer_iptype"] = "ipv4"
+				logfields["answer_ip"] = answer.(*dns.A).A
+			case dns.TypeAAAA:
+				logfields["answer_iptype"] = "ipv6"
+				logfields["answer_ip"] = answer.(*dns.AAAA).AAAA
+			case dns.TypeCNAME:
+				logfields["answer_target"] = answer.(*dns.CNAME).Target
+			default:
+				litter.Dump(answer)
+			}
+
 			// bb := answer.(dns.A)
 			// litter.Dump(bb)
 			// if header.Rrtype == 1 {
 			// 	fmt.Println((dns.A)answer).A
 			// }
 			log.WithFields(logfields).Debug(answer.String())
+			delete(logfields, "answer_iptype")
 
 		}
 
@@ -163,6 +178,8 @@ func parseQuery(m *dns.Msg) {
 }
 
 func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
+
+	// litter.Dump(r)
 	log.WithFields(log.Fields{
 		"Opcode": r.Opcode,
 	}).Info("handle query")
@@ -181,7 +198,6 @@ func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 func main() {
 	// attach request handler func
-	dns.HandleFunc("service.", handleDnsRequest)
 	dns.HandleFunc(".", handleDnsRequest)
 
 	litter.Dump("USE")
