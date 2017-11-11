@@ -9,6 +9,8 @@ import (
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
 	// "strconv"
+	"encoding/json"
+	"io/ioutil"
 	"strings"
 )
 
@@ -22,6 +24,10 @@ type Options struct {
 
 var opts Options
 
+type zonefile struct {
+	A map[string]string `json:"a"`
+}
+
 var records = map[string]string{
 	"t.service.":         "1.0.0.1",
 	"t2.service.":        "1.0.0.2",
@@ -31,6 +37,7 @@ var records = map[string]string{
 }
 
 var version string = "0.1.0"
+var records2 zonefile
 
 func init() {
 	_, err := flags.Parse(&opts)
@@ -40,6 +47,19 @@ func init() {
 	}
 
 	log.SetLevel(log.DebugLevel)
+
+	file, err := ioutil.ReadFile("./records.json")
+
+	if err != nil {
+		log.Error("Fail to open file")
+	}
+
+	err = json.Unmarshal(file, &records2)
+
+	if err != nil {
+		log.Error("Fail to encode json")
+	}
+	litter.Dump(records2)
 
 }
 
@@ -100,13 +120,13 @@ func parseQuery(m *dns.Msg) {
 
 		case dns.TypeA:
 
-			ip := records[q.Name]
+			ip := records2.A[q.Name]
 
 			if ip == "" {
 				shortname := strings.Split(q.Name, ".")[0]
 				logfields["shortname"] = shortname
 				log.WithFields(logfields).Debug("Full name not resolved local, query shortname")
-				ip = records[shortname+"."]
+				ip = records2.A[shortname+"."]
 			}
 
 			if ip == "" {
@@ -134,7 +154,29 @@ func parseQuery(m *dns.Msg) {
 		logfields["answers"] = len(m.Answer)
 		log.WithFields(logfields).Info("Resulting answer")
 
+		// fmt.Printf("%T\n", m.Answer)
+
+		// var s dns.A
+
+		// answer1A := answer1.(dns.A)
+
 		for idx, answer := range m.Answer {
+			// fmt.Printf("%T\n", answer)
+
+			// answer1 := answer.(*dns.A).A
+			// litter.Dump(answer1.A)
+			fmt.Println(answer.(*dns.A).A)
+
+			// litter.Dump(m.Answer)
+			// fmt.Printf("%T\n", m.Answer)
+			// fmt.Printf("%T\n", m.Answer[0])
+
+			// var s dns.A
+
+			// s = answer.(dns.A)
+			// litter.Dump(s)
+			// litter.Dump(s.A)
+
 			// litter.Dump(answer.(dns.A))
 			// answer1 := &answer
 
@@ -145,6 +187,10 @@ func parseQuery(m *dns.Msg) {
 			logfields["answer_name"] = header.Name
 			logfields["answer_ttl"] = header.Ttl
 			logfields["answer_rrtype"] = header.Rrtype
+			if header.Rrtype == 1 {
+				logfields["answer_ip"] = answer.(*dns.A).A
+
+			}
 
 			// bb := answer.(dns.A)
 			// litter.Dump(bb)
