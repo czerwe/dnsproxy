@@ -5,10 +5,11 @@ package main
 
 import (
 	"fmt"
-	log "github.com/Sirupsen/logrus"
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
+	log "github.com/sirupsen/logrus"
+	"gopkg.in/gemnasium/logrus-graylog-hook.v2"
 	// "strconv"
 	"encoding/json"
 	"io/ioutil"
@@ -16,11 +17,13 @@ import (
 )
 
 type Options struct {
-	Dnsserver string `short:"d" long:"dnsserver" env:"DNSSERVER" default:"8.8.8.8" description:"Public DNS server"`
-	Dnsport   string `long:"dnsport" env:"DNSPORT" default:"53" description:"Public DNS server port"`
-	Port      string `short:"p" long:"listenport" env:"LISTENPORT" default:"53" description:"Port where this service is listen to"`
-	Loglevel  string `long:"loglevel" env:"LOGLEVEL" default:"info" description:"loglevel" choice:"warn" choice:"info" choice:"debug"`
-	Version   bool   `long:"version" short:"v" description:"show version"`
+	Grayloghost string `long:"gelfhost" env:"GELFHOST" default:"" description:"Listening Graylog HOST"`
+	Graylogport int    `long:"gelfport" env:"GELFPORT" default:"12201" description:"Listening port of Graylogs GELF UDP Input"`
+	Dnsserver   string `short:"d" long:"dnsserver" env:"DNSSERVER" default:"8.8.8.8" description:"Public DNS server"`
+	Dnsport     string `long:"dnsport" env:"DNSPORT" default:"53" description:"Public DNS server port"`
+	Port        string `short:"p" long:"listenport" env:"LISTENPORT" default:"53" description:"Port where this service is listen to"`
+	Loglevel    string `long:"loglevel" env:"LOGLEVEL" default:"info" description:"loglevel" choice:"warn" choice:"info" choice:"debug"`
+	Version     bool   `long:"version" short:"v" description:"show version"`
 }
 
 var opts Options
@@ -61,6 +64,34 @@ func init() {
 		log.Error("Fail to encode json")
 	}
 	litter.Dump(records2)
+
+	graylogFields := log.Fields{
+		"app":     "desktopdns",
+		"version": version,
+	}
+
+	var level log.Level
+	switch opts.Loglevel {
+	case "info":
+		level = log.InfoLevel
+	case "warn":
+		level = log.WarnLevel
+	case "debug":
+		level = log.DebugLevel
+	default:
+		level = log.DebugLevel
+	}
+
+	log.SetLevel(level)
+
+	if len(opts.Grayloghost) > 0 {
+		hook := graylog.NewAsyncGraylogHook(fmt.Sprintf("%v:%v", opts.Grayloghost, opts.Graylogport), graylogFields)
+		defer hook.Flush()
+		log.AddHook(hook)
+		log.Debug(fmt.Sprintf("Graylog reporting Enabled to host %v:%v", opts.Grayloghost, opts.Graylogport))
+	} else {
+		log.Debug("Graylog reporting disabled")
+	}
 
 }
 
@@ -162,36 +193,12 @@ func parseQuery(m *dns.Msg) {
 		// answer1A := answer1.(dns.A)
 
 		for idx, answer := range m.Answer {
-			// fmt.Printf("%T\n", answer)
 
-			// answer1 := answer.(*dns.A).A
-			// litter.Dump(answer1.A)
-			fmt.Println(answer.(*dns.A).A)
-
-			// litter.Dump(m.Answer)
-			// fmt.Printf("%T\n", m.Answer)
-			// fmt.Printf("%T\n", m.Answer[0])
-
-			// var s dns.A
-
-			// s = answer.(dns.A)
-			// litter.Dump(s)
-			// litter.Dump(s.A)
-
-			// litter.Dump(answer.(dns.A))
-			// answer1 := &answer
-
-			// fmt.Printf("\t\t%T\n", answer)
-			// litter.Dump(answer1)
 			logfields["answer_index"] = idx
 			header = answer.Header()
 			logfields["answer_name"] = header.Name
 			logfields["answer_ttl"] = header.Ttl
 			logfields["answer_rrtype"] = header.Rrtype
-			if header.Rrtype == 1 {
-				logfields["answer_ip"] = answer.(*dns.A).A
-
-			}
 
 			switch header.Rrtype {
 			case dns.TypeA:
