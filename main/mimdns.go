@@ -1,1 +1,1 @@
-mimdns.go
+package main
