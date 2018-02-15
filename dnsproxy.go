@@ -4,16 +4,21 @@ package main
 // https://github.com/miekg/dns/blob/master/types.go#L624
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/sanity-io/litter"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/gemnasium/logrus-graylog-hook.v2"
-	// "strconv"
-	"encoding/json"
+	"html/template"
 	"io/ioutil"
+	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"time"
 )
 
 type Options struct {
@@ -47,7 +52,7 @@ func init() {
 	_, err := flags.Parse(&opts)
 
 	if err != nil {
-		log.Error("Error in parsing arguments")
+		log.Panic("Error in parsing arguments")
 	}
 
 	log.SetLevel(log.DebugLevel)
@@ -63,7 +68,6 @@ func init() {
 	if err != nil {
 		log.Error("Fail to encode json")
 	}
-	// litter.Dump(records2)
 
 	graylogFields := log.Fields{
 		"app":     "desktopdns",
@@ -234,7 +238,7 @@ func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(m)
 }
 
-func main() {
+func dnsserver() {
 	// attach request handler func
 	dns.HandleFunc(".", handleDnsRequest)
 
@@ -248,7 +252,7 @@ func main() {
 		"fwdhost":  opts.Dnsserver,
 		"fwdport":  opts.Dnsport,
 		"loglevel": opts.Loglevel,
-		"version":  version,
+		"version":  version, // log.Info(opts.Servicehost + ":" + string(opts.S
 	}).Info("Starting Service")
 
 	log.Printf("Starting at %v\n", opts.Port)
@@ -258,4 +262,47 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to start server: %s\n ", err.Error())
 	}
+}
+
+func webservice() {
+	r := mux.NewRouter()
+
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("/frontend/static"))))
+	r.HandleFunc("/", Handler)
+
+	srv := &http.Server{
+		Handler:      r,
+		Addr:         "0.0.0.0:8088",
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+
+	log.Fatal(srv.ListenAndServe())
+
+}
+
+type Page struct {
+	Title         string
+	Connectorhost string
+}
+
+func Handler(w http.ResponseWriter, r *http.Request) {
+	// log.Info(opts.Connectorhost + ":" + opts.Connectorport)
+
+	thisPage := Page{Title: "Statusdisplay"}
+	t, _ := template.ParseFiles("templates/index.html")
+	t.Execute(w, thisPage)
+}
+
+func main() {
+	// attach request handler func
+	go dnsserver()
+	go webservice()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	<-sig
+
+	litter.Dump("blub")
+
 }
