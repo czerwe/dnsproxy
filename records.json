@@ -2,6 +2,7 @@
     "a": {
         "centralinstall.": "1.0.1.4",
         "centralinstall.tt.": "1.0.1.5",
-        "graylog.": "10.77.77.51"
+        "graylog.": "10.77.77.52",
+        "s52.": "192.168.52.9"
     }
 }

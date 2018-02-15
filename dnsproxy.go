@@ -32,16 +32,16 @@ type zonefile struct {
 	A map[string]string `json:"a"`
 }
 
-var records = map[string]string{
-	"t.service.":         "1.0.0.1",
-	"t2.service.":        "1.0.0.2",
-	"centralinstall.":    "1.0.0.4",
-	"centralinstall.tt.": "1.0.0.5",
-	"icemaster.":         "10.77.77.11",
-}
+// var records = map[string]string{
+// 	"t.service.":         "1.0.0.1",
+// 	"t2.service.":        "1.0.0.2",
+// 	"centralinstall.":    "1.0.0.4",
+// 	"centralinstall.tt.": "1.0.0.5",
+// 	"icemaster.":         "10.77.77.11",
+// }
 
 var version string = "0.1.0"
-var records2 zonefile
+var records zonefile
 
 func init() {
 	_, err := flags.Parse(&opts)
@@ -58,12 +58,12 @@ func init() {
 		log.Error("Fail to open file")
 	}
 
-	err = json.Unmarshal(file, &records2)
+	err = json.Unmarshal(file, &records)
 
 	if err != nil {
 		log.Error("Fail to encode json")
 	}
-	litter.Dump(records2)
+	// litter.Dump(records2)
 
 	graylogFields := log.Fields{
 		"app":     "desktopdns",
@@ -122,15 +122,15 @@ func query(zone string, qtype uint16) []dns.RR {
 		return failresponse
 	}
 
-	for _, k := range r.Answer {
-		if key, ok := k.(*dns.DNSKEY); ok {
-			for _, alg := range []uint8{dns.SHA1, dns.SHA256, dns.SHA384} {
-				fmt.Println("MARK ON")
-				fmt.Printf("%s; %d\n", key.ToDS(alg).String(), key.Flags)
-				fmt.Println("MARK OFF")
-			}
-		}
-	}
+	// for _, k := range r.Answer {
+	// 	if key, ok := k.(*dns.DNSKEY); ok {
+	// 		for _, alg := range []uint8{dns.SHA1, dns.SHA256, dns.SHA384} {
+	// 			fmt.Println("MARK ON")
+	// 			fmt.Printf("%s; %d\n", key.ToDS(alg).String(), key.Flags)
+	// 			fmt.Println("MARK OFF")
+	// 		}
+	// 	}
+	// }
 
 	return r.Answer
 }
@@ -152,13 +152,13 @@ func parseQuery(m *dns.Msg) {
 
 		case dns.TypeA:
 
-			ip := records2.A[q.Name]
+			ip := records.A[q.Name]
 
 			if ip == "" {
 				shortname := strings.Split(q.Name, ".")[0]
 				logfields["shortname"] = shortname
 				log.WithFields(logfields).Debug("Full name not resolved local, query shortname")
-				ip = records2.A[shortname+"."]
+				ip = records.A[shortname+"."]
 			}
 
 			if ip == "" {
@@ -186,12 +186,6 @@ func parseQuery(m *dns.Msg) {
 		logfields["answers"] = len(m.Answer)
 		log.WithFields(logfields).Info("Resulting answer")
 
-		// fmt.Printf("%T\n", m.Answer)
-
-		// var s dns.A
-
-		// answer1A := answer1.(dns.A)
-
 		for idx, answer := range m.Answer {
 
 			logfields["answer_index"] = idx
@@ -213,26 +207,17 @@ func parseQuery(m *dns.Msg) {
 				litter.Dump(answer)
 			}
 
-			// bb := answer.(dns.A)
-			// litter.Dump(bb)
-			// if header.Rrtype == 1 {
-			// 	fmt.Println((dns.A)answer).A
-			// }
 			log.WithFields(logfields).Debug(answer.String())
 			delete(logfields, "answer_iptype")
 
 		}
-
-		// fmt.Println(m.Answer[0])
-
-		// fmt.Println(string(m.Answer[0]))
-		// litter.Dump(m.Answer[0].A)
 	}
 }
 
 func handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 
-	// litter.Dump(r)
+	litter.Dump(r)
+	litter.Dump(w)
 	log.WithFields(log.Fields{
 		"Opcode": r.Opcode,
 	}).Info("handle query")
